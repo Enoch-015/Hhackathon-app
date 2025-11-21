@@ -1,74 +1,95 @@
-# Vision Navigation
+# Hhackathon App Monorepo
 
-A pnpm-powered Expo (React Native) application that prototypes an accessible navigation companion for people with visual impairments. The experience pairs Google Maps data with live location tracking, voice output, and large tactile controls.
+A full-stack workspace for the Vision Navigation companion consisting of:
 
-## Highlights
-- **Clean guidance UI** with a contrast-friendly map, always-visible status chip, and assistive action buttons.
-- **Long-press destination pinning** plus audible prompts that explain what to do next.
-- **Voice + haptics feedback** (expo-speech, expo-haptics) so users can hear surroundings and feel confirmations.
-- **Google Maps tiles** powered by `react-native-maps` with Google as the provider.
-- **EAS-ready setup** (`eas.json`, app config, pnpm scripts) for preview, development, and production builds.
+- **apps/mobile** – Expo (React Native) client with Google Maps, LiveKit streaming, and assistive controls.
+- **apps/api** – FastAPI backend that issues LiveKit tokens, handles navigation intents/decisions, and serves server-side speech.
+- **apps/api/api/workers** – YOLOv8 + supervision worker that runs alongside FastAPI to watch the LiveKit stream and push obstacle instructions.
+- **packages/** (future) – Shared contracts/utilities that can be consumed by both the mobile app and backend.
 
-## Requirements
-- Node.js 18.18+ and pnpm 8+ (`corepack enable pnpm` is recommended).
-- A Google Maps SDK key with Maps SDK for Android/iOS enabled.
-- Expo CLI tooling (bundled through the local dependency) and, for builds, an Expo account.
+## Getting started
 
-## Environment variables
-Set the maps key before running Metro/EAS. Expo automatically exposes any variable prefixed with `EXPO_PUBLIC_` to the app code/config.
+### Prerequisites
+- Node.js ≥ 18.18 with pnpm ≥ 8 (`corepack enable pnpm`).
+- Python ≥ 3.11 (for FastAPI + vision service).
+- LiveKit Cloud or self-hosted server (API key/secret + WebSocket URL).
+- Google Maps SDK key + optional Google Cloud Text-to-Speech credentials.
 
-```bash
-export EXPO_PUBLIC_GOOGLE_MAPS_API_KEY="<your-key>"
-# Optional: only needed after running `eas init` and receiving the UUID
-export EXPO_PUBLIC_EAS_PROJECT_ID="<uuid-from-eas>"
-```
-
-> On managed builds, prefer `eas secret:create --name EXPO_PUBLIC_GOOGLE_MAPS_API_KEY --value <key>` so the key is stored securely.
-
-## Scripts
-| Command | Description |
-| --- | --- |
-| `pnpm start` | Launch Metro bundler with the Expo dev server. |
-| `pnpm android` / `pnpm ios` / `pnpm web` | Quick-launch platform targets from Expo. |
-| `pnpm typecheck` | Run TypeScript without emitting output. |
-| `pnpm eas-build` | Convenience wrapper for `eas build --profile preview --platform all`. Requires Expo login & project ID. |
-
-## EAS setup
-1. Authenticate: `pnpm dlx eas login`.
-2. Register the project (one-time): `pnpm dlx eas init` → copies the project ID into `EXPO_PUBLIC_EAS_PROJECT_ID`.
-3. Provision credentials as needed (`eas credentials`).
-4. Trigger builds (`pnpm eas-build` or directly via `pnpm dlx eas build --profile production --platform android`).
-
-Profiles live in `eas.json`:
-- `development`: internal distribution with the dev client (ideal for QA devices).
-- `preview`: internal testing channel with auto version bumps.
-- `production`: store-ready artifacts.
-
-## Google Maps configuration
-- The TypeScript config (`app.config.ts`) injects the API key into both Android (`android.config.googleMaps.apiKey`) and iOS (`ios.config.googleMapsApiKey`).
-- Update the `bundleIdentifier` / `package` if you change the app slug.
-- When testing on a physical device, ensure the key allows that bundle ID/SHA.
-
-## Running locally
+### Install dependencies
 ```bash
 pnpm install
-export EXPO_PUBLIC_GOOGLE_MAPS_API_KEY="<your-key>"
+```
+
+### Mobile app (Expo)
+```bash
+cd apps/mobile
 pnpm start
 ```
-Open the Expo dev tools, scan the QR code (Expo Go) or press `a` / `i` for emulators. Grant location permission when prompted and long-press the map to drop a destination pin.
-
-## Project structure (excerpt)
+Set the required env vars before launching Metro:
+```bash
+export EXPO_PUBLIC_GOOGLE_MAPS_API_KEY="<maps-key>"
+export EXPO_PUBLIC_API_BASE_URL="http://192.168.1.5:8000"
+export EXPO_PUBLIC_LIVEKIT_URL="ws://192.168.1.5:7880"
 ```
-App.tsx                    # Main UI scene with the map & assistive controls
-app.config.ts              # Dynamic Expo config + Google Maps key wiring
-eas.json                   # Build/submit profiles
-src/hooks/useAccessibleLocation.ts
-src/components/            # AssistiveButton, InfoCard, StatusChip
-src/utils/voiceAssistant.ts
-src/theme/colors.ts        # Palette tokens for consistent contrast
+Then scan the QR code with Expo Go or press `a`/`i` to open a simulator. Use the **“Remote guardian stream”** button to start video streaming once the backend is running; obstacle instructions will play automatically from the FastAPI navigation endpoint.
+
+### API server
+```bash
+cd apps/api
+cp .env.example .env
+uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+The LiveKit token endpoint will be available at `POST /api/livekit/token`.
+
+#### Navigation & decision endpoints
+- `POST /api/navigation/destination` — store a destination (latitude/longitude) for the active LiveKit room.
+- `GET /api/navigation/destination/{room}` — retrieve the last destination that the mobile client pinned.
+- `POST /api/navigation/decision` — secured endpoint (requires `VISION_API_TOKEN` bearer) used by the YOLO worker to submit `MOVE_FORWARD | TURN_LEFT | TURN_RIGHT | STOP` decisions.
+- `GET /api/navigation/decision/latest?room=vision-nav-room` — polled by the mobile client to announce the newest instruction.
+
+Set `VISION_API_TOKEN` in `apps/api/.env` to secure writes; share the token with the worker via the same-named env var.
+
+#### Google Cloud Text-to-Speech setup
+1. Open the [Google Cloud Console](https://console.cloud.google.com/) and pick/create a project.
+2. Go to **APIs & Services → Enable APIs and Services**, search for **Cloud Text-to-Speech API**, and enable it.
+3. Navigate to **IAM & Admin → Service Accounts**, create a new service account, and add a key → JSON. Download the JSON file.
+4. In `apps/api/.env`, set `GOOGLE_CREDENTIALS_FILE=/absolute/path/to/key.json`. If you can’t host files, paste the JSON into `GOOGLE_CREDENTIALS_JSON='{"type":"service_account",...}'`.
+5. Optionally tweak `TTS_VOICE`/`TTS_LANGUAGE_CODE` to switch voices.
+6. Restart `uvicorn`. You can now call `POST /api/tts/speak` with `{ "text": "Obstacle ahead" }` to receive a base64 MP3 payload that the mobile app plays via `expo-av`.
+
+### Vision service prototype
+```bash
+pnpm vision:run
+```
+The command runs `python -m api.workers.vision_supervisor` within the FastAPI virtual environment. By default it joins your LiveKit room using `LIVEKIT_URL`, subscribes to the walker’s camera stream, performs YOLOv8 segmentation, and posts decisions to `/api/navigation/decision` every ~500ms. Set the following env vars in `apps/api/.env` (or your shell) before launching:
+
+- `VISION_USE_LIVEKIT=1` to pull frames from LiveKit (set to `0` to fall back to `VIDEO_SOURCE` / webcam input).
+- `VISION_IDENTITY=vision-supervisor` so the worker is identifiable inside the room.
+- `FASTAPI_BASE_URL`, `VISION_API_TOKEN` for authenticated decision posts.
+- `YOLO_MODEL_PATH`, `VISION_MIN_CONF`, `VISION_COST_THRESHOLD`, `VISION_DISPLAY` for detection tuning.
+
+Ensure the LiveKit credentials (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) match the backend `.env` so the worker can mint its own access token.
+
+## Project scripts
+| Command | Description |
+| --- | --- |
+| `pnpm dev:mobile` | Start Expo dev server (runs from repo root). |
+| `pnpm api:dev` | Launch FastAPI via Uvicorn using `uv`. |
+| `pnpm vision:run` | Run the YOLO-based navigation supervisor (now inside `apps/api`). |
+| `pnpm lint` | Run TypeScript checks for the mobile app. |
+
+## Folder structure
+```
+apps/
+  mobile/      # Expo client
+  api/         # FastAPI backend + workers
+    api/
+      workers/ # computer-vision supervisor
+packages/      # shared libraries (placeholder)
 ```
 
 ## Next steps
-- Replace placeholder bundle identifiers, register on EAS, and commit the generated project ID.
-- Integrate turn-by-turn routing (e.g., Mapbox Directions API) for more precise instructions.
-- Add automated testing (unit + detox) before shipping to stores.
+- Implement authenticated endpoints for destination intents and navigation decisions.
+- Wire the vision service to LiveKit’s subscriber SDK instead of local camera when available.
+- Move shared DTOs into `packages/contracts` and generate both TS + Pydantic models automatically.
+- Add CI to build/test both the Expo and FastAPI projects.

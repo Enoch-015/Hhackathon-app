@@ -1,8 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
+import Constants from 'expo-constants';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Dimensions,
+  FlatList,
   LayoutAnimation,
   Platform,
   StyleSheet,
@@ -13,15 +16,36 @@ import {
 } from 'react-native';
 import MapView, { LongPressEvent, Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  AudioSession,
+  LiveKitRoom,
+  VideoTrack,
+  isTrackReference,
+  registerGlobals,
+  useTracks
+} from '@livekit/react-native';
+import { Track } from 'livekit-client';
 
 import { AssistiveButton } from './src/components/AssistiveButton';
 import { InfoCard } from './src/components/InfoCard';
 import { StatusChip } from './src/components/StatusChip';
 import { useAccessibleLocation } from './src/hooks/useAccessibleLocation';
+import { useNavigationDecisions, describeNavigationCommand, type NavigationDecision } from './src/hooks/useNavigationDecisions';
+import { useLiveKitSession } from './src/hooks/useLiveKitSession';
 import { palette } from './src/theme/colors';
 import { speak, stopSpeech } from './src/utils/voiceAssistant';
 
 type GuidanceMode = 'idle' | 'listening' | 'navigating';
+
+type ExtraConfig = {
+  livekitUrl?: string;
+};
+
+try {
+  registerGlobals();
+} catch {
+  // no-op: registerGlobals might throw on unsupported platforms (web)
+}
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -39,7 +63,22 @@ export default function App() {
   const [mapRegion, setMapRegion] = useState<Region>(FALLBACK_REGION);
   const [destination, setDestination] = useState<Region | null>(null);
   const [mode, setMode] = useState<GuidanceMode>('idle');
+  const [isStreamingRequested, setStreamingRequested] = useState(false);
   const { status, coords, heading, errorMessage, requestPermission } = useAccessibleLocation();
+  const identityRef = useRef(`walker-${Math.random().toString(36).slice(2, 10)}`);
+  const extra = (Constants.expoConfig?.extra ?? Constants.manifestExtra ?? {}) as ExtraConfig;
+  const livekitUrl = extra?.livekitUrl || process.env.EXPO_PUBLIC_LIVEKIT_URL || '';
+  const {
+    token: liveKitToken,
+    status: liveKitStatus,
+    error: liveKitError,
+    startSession,
+    stopSession,
+    room
+  } = useLiveKitSession(identityRef.current);
+  const shouldConnect = isStreamingRequested && liveKitStatus === 'ready' && Boolean(liveKitToken && livekitUrl);
+  const { decision: navigationDecision } = useNavigationDecisions({ room, enabled: shouldConnect });
+  const lastDecisionSequence = useRef<number | null>(null);
 
   const destinationDistance = useMemo(() => {
     if (!coords || !destination) return null;
@@ -63,6 +102,34 @@ export default function App() {
     if (status === 'denied' || status === 'error') return 'warning';
     return 'neutral';
   }, [status]);
+
+  useEffect(() => {
+    AudioSession.startAudioSession();
+    return () => {
+      AudioSession.stopAudioSession();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (liveKitError) {
+      Alert.alert('LiveKit error', liveKitError);
+      setStreamingRequested(false);
+    }
+  }, [liveKitError]);
+
+  useEffect(() => {
+    if (!shouldConnect) {
+      lastDecisionSequence.current = null;
+    }
+  }, [shouldConnect]);
+
+  useEffect(() => {
+    if (!navigationDecision) return;
+    if (lastDecisionSequence.current === navigationDecision.sequence) return;
+    lastDecisionSequence.current = navigationDecision.sequence;
+    const spoken = navigationDecision.message ?? describeNavigationCommand(navigationDecision.command);
+    speak(spoken);
+  }, [navigationDecision]);
 
   useEffect(() => {
     if (!coords) return;
@@ -152,7 +219,27 @@ export default function App() {
     mapRef.current?.animateToRegion(nextRegion, 400);
   };
 
-  return (
+  const handleToggleStreaming = async () => {
+    if (isStreamingRequested) {
+      stopSession();
+      setStreamingRequested(false);
+      speak('Remote guardian disconnected.');
+      return;
+    }
+
+    try {
+      await startSession({ displayName: `Explorer ${identityRef.current}` });
+      setStreamingRequested(true);
+      speak('Remote guardian connected. Streaming has started.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to start remote guardian stream';
+      Alert.alert('LiveKit connection failed', message);
+    }
+  };
+
+  const streamingLabel = shouldConnect ? 'Remote guardian connected' : 'Remote guardian offline';
+
+  const content = (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
       <View style={styles.mapWrapper}>
@@ -184,6 +271,8 @@ export default function App() {
           <Text style={styles.modeLabel}>{describeMode(mode)}</Text>
         </View>
 
+        {shouldConnect ? <RoomView /> : null}
+
         <TouchableOpacity style={styles.recenterButton} onPress={handleRecenter} accessibilityLabel="Recenter on my position">
           <MaterialIcons name="my-location" size={22} color={palette.textPrimary} />
         </TouchableOpacity>
@@ -195,6 +284,14 @@ export default function App() {
           {destinationDistance ? (
             <Text style={styles.infoText}>
               Distance: <Text style={styles.infoEmphasis}>{destinationDistance.toFixed(0)} m</Text>
+            </Text>
+          ) : null}
+          <Text style={styles.infoText}>
+            Stream: <Text style={styles.infoEmphasis}>{streamingLabel}</Text>
+          </Text>
+          {navigationDecision ? (
+            <Text style={styles.infoText}>
+              Instruction: <Text style={styles.infoEmphasis}>{formatNavigationDecision(navigationDecision)}</Text>
             </Text>
           ) : null}
         </InfoCard>
@@ -221,10 +318,63 @@ export default function App() {
           onPress={handleStartGuidance}
           disabled={!destination}
         />
+
+        <AssistiveButton
+          label={shouldConnect ? 'Stop remote guardian stream' : 'Start remote guardian stream'}
+          description="Share your camera with a remote supervisor for obstacle alerts"
+          icon={<MaterialIcons name="personal-video" size={24} color={palette.textPrimary} />}
+          onPress={handleToggleStreaming}
+          tone="secondary"
+        />
       </View>
     </SafeAreaView>
   );
+
+  if (!livekitUrl) {
+    return content;
+  }
+
+  return (
+    <LiveKitRoom
+      serverUrl={livekitUrl}
+      token={liveKitToken ?? ''}
+      connect={shouldConnect}
+      audio
+      video
+      options={{ adaptiveStream: { pixelDensity: 'screen' } }}
+    >
+      {content}
+    </LiveKitRoom>
+  );
 }
+
+const RoomView = () => {
+  const tracks = useTracks([Track.Source.Camera]);
+
+  const renderTrack = ({ item }: { item: typeof tracks[number] }) => {
+    if (isTrackReference(item)) {
+      return <VideoTrack trackRef={item} style={styles.participantView} />;
+    }
+    return <View style={[styles.participantView, styles.participantPlaceholder]} />;
+  };
+
+  return (
+    <View style={styles.streamPreview} pointerEvents="none">
+      <FlatList
+        data={tracks}
+        keyExtractor={(item, index) => {
+          const ref = item as any;
+          const identifier = ref?.publicationSid ?? ref?.trackSid ?? ref?.participant?.identity ?? `participant-${index}`;
+          return String(identifier);
+        }}
+        renderItem={renderTrack}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        ListEmptyComponent={<View style={[styles.participantView, styles.participantPlaceholder]} />}
+      />
+    </View>
+  );
+};
 
 function describeMode(mode: GuidanceMode) {
   switch (mode) {
@@ -235,6 +385,11 @@ function describeMode(mode: GuidanceMode) {
     default:
       return 'Standing by';
   }
+}
+
+function formatNavigationDecision(decision: NavigationDecision | null) {
+  if (!decision) return '';
+  return decision.message ?? describeNavigationCommand(decision.command);
 }
 
 function describeDirection(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -306,6 +461,25 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 20
+  },
+  streamPreview: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 48 : 24,
+    right: 16
+  },
+  participantView: {
+    width: 160,
+    height: 100,
+    borderRadius: 16,
+    backgroundColor: '#0f172a',
+    marginLeft: 8,
+    overflow: 'hidden'
+  },
+  participantPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1f2937'
   },
   infoText: {
     color: palette.textSecondary,

@@ -2,6 +2,10 @@
 
 # dependencies
 node_modules/
+__pycache__/
+.venv/
+*.pyc
+.ruff_cache/
 
 # Expo
 .expo/
@@ -32,6 +36,8 @@ yarn-error.*
 
 # local env files
 .env*.local
+apps/api/.env
+apps/api/.env.*
 
 # typescript
 *.tsbuildinfo
