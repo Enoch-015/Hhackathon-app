@@ -38,3 +38,6 @@ line-length = 100
 python_version = "3.11"
 strict = false
 
+[tool.hatch.build.targets.wheel]
+packages = ["api"]
+
