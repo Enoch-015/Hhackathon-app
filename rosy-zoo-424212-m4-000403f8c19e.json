@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "rosy-zoo-424212-m4",
+  "private_key_id": "000403f8c19eed3767d7c092b5279120b02fdc93",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCV53wr32uLPh88\ne4LYBpiaPlwlt7o6uBchVY4iGNre2/ni/Tq59ThxaBkCG/EmPh+qN9mebB+9cSlE\nkyRGjMSpW3WX2QfeZVFSt4U+EpJqffYoKrJP8lYW/jefalDNz2hJwxeRwIVH1vwU\nZwtSCZJdZi71bLN0tcLSgh890QPgK7PYURexrPFzkjrDf0kor4EyXM9Ja9XbNlQs\nyf2kMFd1sm0xiFQD+2yUbLS3exKKhPcF+r029U64pJKy0yOnIZIMPOaaZeKuizK/\nJv1fJvpl6yi1etc9Mm4t8m4LydqGYnZyRAUM2xDoO/AnYgoXumwhlkC9DUdvLETm\n4NBEgWGdAgMBAAECggEABiSBsJSLph2KDyLqhiqjBzMF+J+yOGTBweJtHBWTpm0y\nLKx+ww763J7M44q8k3oZNxLpznWUyWEBNWeoJWHwTxZJ18qTaXgSYIbXpWcCa+20\ncAnr253NDE0nf1dOb1iP5/HgHd9bNsnm83kTfC2bO0uMIg9tvRsTnCer2w8dDwr7\nWBi5L3t9bXNTD69ZLvnrmepC4TUqjqSquAD1L/ZCBdlyJJ2/FKPHN+h+i1bDcgi8\nEPApBJ4qsTO0S9BiuFLoecm8swJSGPiDyaN/vc+wHv7q1yffG/7UCCTfDNLp3s/P\nSo6CSU4P4VjoJEC5X9Y3OFHSJ62uNscV/3v160aoqwKBgQDKKJy9UGsAUhWeHQJQ\nNsvdME9B/huOEH0HXOSWK7iQRL2cAqP2RIFzVOGnvmP11fvLYqkDCedDbGziWN7h\n61aktO/mHBauAPTNjw4lI4ogK8kOlOKsA4k2ZwyKVg3PjvFoFLutoRgnacNuI6OX\n6487inEm8EQh1SnNczZ75v5V3wKBgQC91BzmTMsT+nleo69FFHuhvGHXILK6TCf8\n0RIkUg5xh6izDdL/ewuZSLjP4mu8NMfiyrcchtXFlCbEv+OGEBjUA1hlCibfVTV4\nkn6eDdCfDy9SB40JuwZ+FUQNxy7MOFeL4DJrXKqiPvSsCduOYimovxU7NkfMeZ4b\n4j+So4WgAwKBgFMGwvjtokSLcd1yRJT1LF03jhWoa2C5XOA9QpR6eF6oHMeKPhTS\npefcIKFoDF3W+IbbilZ5JsYGLeH4ZfGbWgZjWXPEbXwhYGlcK48NPZlg4j5e34mO\nGjiBsiDOnvVz26nHeh0hYG4vfdgqQvIOCNGHVlmLrC/JAFYkz2erwyE5AoGBALfx\nXyOmjC5Kyury77aft4Esux4r2CSAAUuRB+RcAxTt4IHIxom7oKyi9Dq067KO7pYL\n2s3wthrjiYGjc4SH+pcOuswFv08wEUVJpxnexyYqH698E6W3Lf5k+vHi7a0Ed4jZ\n8eFpBQt8t7gxQShCZJ3Ys2kSGxa/Tn80iGe+vpAjAoGAGy7RL4lK0G1VFsZqyKR+\nsayEwv5bVDvfbWIX3VYICN87qf5ZThdWYGv5xV6t1zPyx1ITRrBL8EKWjaQkDpif\n7z3zKVO53UGsCN/8rTpb0ZhDA2UFdA4oM1b//nl1GqhwXRwGCKff3+9REICHHOtb\nIEWV7juiUckNYDFCBwuFxRw=\n-----END PRIVATE KEY-----\n",
+  "client_email": "defang-deployer@rosy-zoo-424212-m4.iam.gserviceaccount.com",
+  "client_id": "100361233805598531809",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/defang-deployer%40rosy-zoo-424212-m4.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
