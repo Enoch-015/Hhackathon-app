@@ -33,6 +33,18 @@ export EXPO_PUBLIC_LIVEKIT_URL="ws://192.168.1.5:7880"
 ```
 Then scan the QR code with Expo Go or press `a`/`i` to open a simulator. Use the **“Remote guardian stream”** button to start video streaming once the backend is running; obstacle instructions will play automatically from the FastAPI navigation endpoint.
 
+#### Native modules / LiveKit dev client
+`@livekit/react-native` and `react-native-webrtc` ship native code and cannot run inside Expo Go. If you see `...doesn't seem to be linked` errors, build a custom dev client once per platform:
+
+```bash
+cd apps/mobile
+pnpm prebuild            # generates ios/ and android/ directories (run after installing native deps)
+pnpm run:android         # or pnpm run:ios (requires Android Studio / Xcode)
+pnpm dev-client          # starts Metro in dev-client mode for the custom build
+```
+
+On iOS you may need `cd ios && pod install` after prebuild. Re-run `pnpm prebuild` whenever you add/remove native packages so the LiveKit module stays linked.
+
 ### API server
 ```bash
 cd apps/api
@@ -76,6 +88,8 @@ Ensure the LiveKit credentials (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_S
 | `pnpm dev:mobile` | Start Expo dev server (runs from repo root). |
 | `pnpm api:dev` | Launch FastAPI via Uvicorn using `uv`. |
 | `pnpm vision:run` | Run the YOLO-based navigation supervisor (now inside `apps/api`). |
+| `pnpm --filter @hhackathon/mobile prebuild` | Generate native projects so LiveKit can link. |
+| `pnpm --filter @hhackathon/mobile run:android` | Build/install the Android custom dev client. |
 | `pnpm lint` | Run TypeScript checks for the mobile app. |
 
 ## Folder structure

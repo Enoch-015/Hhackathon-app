@@ -5,9 +5,9 @@ const APP_SLUG = 'vision-navigation';
 const ANDROID_PACKAGE = 'com.enoch015.visionnavigation';
 const IOS_BUNDLE = 'com.enoch015.visionnavigation';
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
-const EAS_PROJECT_ID = process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? '';
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8000';
-const LIVEKIT_URL = process.env.EXPO_PUBLIC_LIVEKIT_URL ?? 'ws://127.0.0.1:7880';
+const EAS_PROJECT_ID = process.env.EXPO_PUBLIC_EAS_PROJECT_ID ?? '959e3ccb-0026-4658-a12f-0f8d275bb5bd';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://fictional-guacamole-wr7x9vvw96jphvj66-8000.app.github.dev/';
+const LIVEKIT_URL = process.env.EXPO_PUBLIC_LIVEKIT_URL ?? 'AIzaSyDZEhNSz-qC6eMLY6z7c1TI-jWOvf0UczI';
 const DEFAULT_ROOM = process.env.EXPO_PUBLIC_LIVEKIT_ROOM ?? 'vision-nav-room';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
@@ -19,11 +19,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'light',
-  newArchEnabled: true,
+  newArchEnabled: false,
   splash: {
     image: './assets/splash-icon.png',
     resizeMode: 'contain',
     backgroundColor: '#030712'
+  },
+  updates: {
+    url: 'https://u.expo.dev/959e3ccb-0026-4658-a12f-0f8d275bb5bd'
+  },
+  runtimeVersion: {
+    policy: 'appVersion'
   },
   ios: {
     supportsTablet: false,
@@ -56,7 +62,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    newArchEnabled: true
+    newArchEnabled: false
   },
   web: {
     favicon: './assets/favicon.png'
