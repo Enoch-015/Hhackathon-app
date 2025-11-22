@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from ..config import Settings, get_settings
@@ -34,7 +36,7 @@ def submit_decision(
         confidence=payload.confidence,
         source=payload.source,
     )
-    return NavigationDecisionResponse(**entry.__dict__)
+    return NavigationDecisionResponse(**asdict(entry))
 
 
 @router.get("/decision/latest", response_model=NavigationDecisionResponse)
@@ -45,7 +47,7 @@ def latest_decision(
     entry = store.get_latest_decision(room)
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No decision available")
-    return NavigationDecisionResponse(**entry.__dict__)
+    return NavigationDecisionResponse(**asdict(entry))
 
 
 @router.post("/destination", response_model=NavigationDestinationResponse)
@@ -60,7 +62,7 @@ def set_destination(
         label=payload.label,
         requested_by=payload.requested_by,
     )
-    return NavigationDestinationResponse(**entry.__dict__)
+    return NavigationDestinationResponse(**asdict(entry))
 
 
 @router.get("/destination/{room}", response_model=NavigationDestinationResponse)
@@ -71,7 +73,7 @@ def get_destination(
     entry = store.get_destination(room)
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Destination not set")
-    return NavigationDestinationResponse(**entry.__dict__)
+    return NavigationDestinationResponse(**asdict(entry))
 
 
 @router.delete("/destination/{room}", status_code=status.HTTP_204_NO_CONTENT)

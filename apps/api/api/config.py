@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     navigation_decision_ttl_seconds: int = 5
     navigation_history_limit: int = 50
     vision_api_token: str | None = None
+    auto_start_vision_worker: bool = True
+    worker_fastapi_base_url: str = "http://127.0.0.1:8000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

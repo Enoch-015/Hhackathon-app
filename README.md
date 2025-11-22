@@ -51,7 +51,7 @@ cd apps/api
 cp .env.example .env
 uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
-The LiveKit token endpoint will be available at `POST /api/livekit/token`.
+The LiveKit token endpoint will be available at `POST /api/livekit/token`. When `AUTO_START_VISION_WORKER=1` (default in `.env`), the YOLO-based navigation worker launches automatically alongside FastAPI so obstacle decisions begin streaming as soon as the server boots. Set `AUTO_START_VISION_WORKER=0` if you prefer to run the worker manually.
 
 #### Navigation & decision endpoints
 - `POST /api/navigation/destination` — store a destination (latitude/longitude) for the active LiveKit room.
@@ -73,11 +73,11 @@ Set `VISION_API_TOKEN` in `apps/api/.env` to secure writes; share the token with
 ```bash
 pnpm vision:run
 ```
-The command runs `python -m api.workers.vision_supervisor` within the FastAPI virtual environment. By default it joins your LiveKit room using `LIVEKIT_URL`, subscribes to the walker’s camera stream, performs YOLOv8 segmentation, and posts decisions to `/api/navigation/decision` every ~500ms. Set the following env vars in `apps/api/.env` (or your shell) before launching:
+The command runs `python -m api.workers.vision_supervisor` within the FastAPI virtual environment. This is now optional if `AUTO_START_VISION_WORKER=1` because the API server launches the worker automatically, but keeping the script available is useful for debugging or custom deployments. By default it joins your LiveKit room using `LIVEKIT_URL`, subscribes to the walker’s camera stream, performs YOLOv8 segmentation, and posts decisions to `/api/navigation/decision` every ~500ms. Set the following env vars in `apps/api/.env` (or your shell) before launching:
 
 - `VISION_USE_LIVEKIT=1` to pull frames from LiveKit (set to `0` to fall back to `VIDEO_SOURCE` / webcam input).
 - `VISION_IDENTITY=vision-supervisor` so the worker is identifiable inside the room.
-- `FASTAPI_BASE_URL`, `VISION_API_TOKEN` for authenticated decision posts.
+- `FASTAPI_BASE_URL` (or `WORKER_FASTAPI_BASE_URL`), `VISION_API_TOKEN` for authenticated decision posts.
 - `YOLO_MODEL_PATH`, `VISION_MIN_CONF`, `VISION_COST_THRESHOLD`, `VISION_DISPLAY` for detection tuning.
 
 Ensure the LiveKit credentials (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) match the backend `.env` so the worker can mint its own access token.

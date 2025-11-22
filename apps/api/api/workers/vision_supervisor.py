@@ -21,6 +21,19 @@ try:  # optional dependency for LiveKit subscription
 except Exception:  # pragma: no cover - optional dependency
     rtc = None
 
+if rtc is not None:  # pragma: no cover - optional dependency
+    try:
+        from livekit.rtc import VideoBufferType  # type: ignore
+    except Exception:
+        try:
+            from livekit.proto import video_pb2 as _proto_video  # type: ignore
+
+            VideoBufferType = getattr(_proto_video, "VideoBufferType", None)
+        except Exception:
+            VideoBufferType = None
+else:  # pragma: no cover - optional dependency
+    VideoBufferType = None
+
 from ..config import get_settings
 from ..models.schemas import NavigationCommand
 from ..services.livekit import LiveKitTokenService
@@ -78,12 +91,13 @@ class NavigationSupervisor:
     def __init__(self, cfg: VisionConfig) -> None:
         self.cfg = cfg
         self.model = YOLO(cfg.model_path)
-        self.box_annotator = sv.BoxAnnotator(color=sv.Color.red(), thickness=2)
-        self.label_annotator = sv.LabelAnnotator(text_color=sv.Color.white(), text_scale=0.5)
+        self.box_annotator = sv.BoxAnnotator(color=sv.Color.RED, thickness=2)
+        self.label_annotator = sv.LabelAnnotator(text_color=sv.Color.WHITE, text_scale=0.5)
         self._last_publish = 0.0
         self._frame_queue: asyncio.Queue[np.ndarray] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._frame_task: asyncio.Task[None] | None = None
+        self._track_tasks: dict[str, asyncio.Task[None]] = {}
 
     def run(self) -> None:
         use_livekit = self.cfg.use_livekit and self.cfg.livekit_ready() and rtc is not None
@@ -139,57 +153,134 @@ class NavigationSupervisor:
             name=f"Vision Supervisor ({self.cfg.livekit_identity})",
         )
 
-        room = rtc.Room(
-            options=rtc.RoomOptions(
-                adaptive_stream=True,
-                auto_subscribe=rtc.AutoTrackSubscribe.SUBSCRIBE_VIDEO_ONLY,
-            )
-        )
+        room = rtc.Room()
         self._frame_queue = asyncio.Queue(maxsize=1)
         self._loop = asyncio.get_running_loop()
         self._last_publish = 0.0
+        closed_event = asyncio.Event()
 
         @room.on("track_subscribed")
         def _on_track(track, publication, participant) -> None:
             if not isinstance(track, rtc.RemoteVideoTrack):
                 return
             logger.info("Subscribed to %s from %s", publication.sid, participant.identity)
-            self._attach_track(track)
+            self._attach_track(publication.sid, track, participant.identity)
 
         @room.on("track_unsubscribed")
         def _on_unsubscribed(track, publication, participant) -> None:
             if isinstance(track, rtc.RemoteVideoTrack):
                 logger.info("Video track %s from %s ended", publication.sid, participant.identity)
+                self._detach_track(publication.sid)
 
         @room.on("connection_state_changed")
-        def _on_state(state, *_: object) -> None:
-            logger.info("LiveKit connection state: %s", state.name)
+        def _on_state(state) -> None:
+            state_name = getattr(state, "name", str(state))
+            logger.info("LiveKit connection state: %s", state_name)
 
-        await room.connect(self.cfg.livekit_url, token)
+        @room.on("disconnected")
+        def _on_disconnected(reason=None) -> None:
+            logger.info("LiveKit disconnected: %s", reason or "unknown")
+            closed_event.set()
+
+        await room.connect(
+            self.cfg.livekit_url,
+            token,
+            options=rtc.RoomOptions(auto_subscribe=True),
+        )
         logger.info("LiveKit room joined; waiting for remote video tracks")
 
         self._frame_task = asyncio.create_task(self._process_frames())
         try:
-            await room.wait_closed()
+            await closed_event.wait()
         finally:
+            await self._cleanup_track_tasks()
             if self._frame_task:
                 self._frame_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._frame_task
             if self.cfg.display:
                 cv2.destroyAllWindows()
+            with contextlib.suppress(Exception):
+                await room.disconnect()
+            self._frame_queue = None
+            self._loop = None
 
-    def _attach_track(self, track) -> None:
-        if self._loop is None or self._frame_queue is None:
+    def _attach_track(self, sid: str, track, identity: str) -> None:
+        if self._loop is None or self._frame_queue is None or rtc is None:
             return
 
         loop = self._loop
 
-        def _handle_frame(frame) -> None:
-            ndarray = frame.to_ndarray(format="bgr24")
-            loop.call_soon_threadsafe(self._enqueue_frame, ndarray)
+        def _start_consumer() -> None:
+            if sid in self._track_tasks:
+                return
+            task = loop.create_task(self._consume_video_track(track, identity, sid))
+            self._track_tasks[sid] = task
 
-        track.add_listener(_handle_frame)
+        loop.call_soon_threadsafe(_start_consumer)
+
+    def _detach_track(self, sid: str) -> None:
+        task = self._track_tasks.pop(sid, None)
+        if task:
+            task.cancel()
+
+    async def _cleanup_track_tasks(self) -> None:
+        if not self._track_tasks:
+            return
+        tasks = list(self._track_tasks.values())
+        for task in tasks:
+            task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._track_tasks.clear()
+
+    async def _consume_video_track(self, track, identity: str, sid: str) -> None:
+        if rtc is None:
+            return
+        try:
+            async for event in rtc.VideoStream(track):
+                frame = getattr(event, "frame", None)
+                if frame is None:
+                    continue
+                ndarray = self._video_frame_to_bgr(frame)
+                if ndarray is None:
+                    continue
+                self._enqueue_frame(ndarray)
+        except asyncio.CancelledError:  # pragma: no cover - task cancellation
+            logger.info("LiveKit video task cancelled for %s", identity)
+            raise
+        except Exception as exc:  # pragma: no cover - network callback errors
+            logger.warning("LiveKit ingestion error (%s): %s", identity, exc)
+        finally:
+            self._track_tasks.pop(sid, None)
+
+    def _video_frame_to_bgr(self, video_frame) -> np.ndarray | None:
+        try:
+            if hasattr(video_frame, "to_ndarray"):
+                return video_frame.to_ndarray(format="bgr24")
+        except Exception:
+            pass
+
+        if not hasattr(video_frame, "data"):
+            return None
+
+        frame = video_frame
+        target_format = None
+        if VideoBufferType is not None:
+            target_format = getattr(VideoBufferType, "RGB24", getattr(VideoBufferType, "VIDEO_BUFFER_TYPE_RGB24", None))
+
+        try:
+            if target_format is not None and getattr(video_frame, "type", target_format) != target_format:
+                frame = video_frame.convert(target_format)
+        except Exception:
+            frame = video_frame
+
+        try:
+            data = np.frombuffer(frame.data, dtype=np.uint8)
+            array = data.reshape((frame.height, frame.width, 3))
+        except Exception:
+            return None
+        return cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
 
     def _enqueue_frame(self, frame: np.ndarray) -> None:
         if not self._frame_queue:
@@ -224,9 +315,18 @@ class NavigationSupervisor:
         detection = sv.Detections.empty()
         if results:
             detection = sv.Detections.from_ultralytics(results[0])
-        labels = [f"{self.model.names.get(class_id, 'obj')} {confidence:.2f}" for _, confidence, class_id, _ in detection]
+
+        names = self.model.names or {}
+        confidences = getattr(detection, "confidence", None) or []
+        class_ids = getattr(detection, "class_id", None) or []
+        labels: list[str] = []
+        for conf, class_id in zip(confidences, class_ids):
+            label = names.get(int(class_id), "obj") if isinstance(class_id, (int, np.integer)) else names.get(class_id, "obj")
+            labels.append(f"{label} {conf:.2f}")
+
         annotated = self.box_annotator.annotate(scene=frame.copy(), detections=detection)
-        annotated = self.label_annotator.annotate(scene=annotated, detections=detection, labels=labels)
+        if labels:
+            annotated = self.label_annotator.annotate(scene=annotated, detections=detection, labels=labels)
         return detection, annotated
 
     def _analyze_frame(self, frame: np.ndarray) -> tuple[NavigationCommand, np.ndarray]:
