@@ -81,6 +81,7 @@ export default function App() {
   } = useLiveKitSession(identityRef.current);
   const shouldConnect = isStreamingRequested && liveKitStatus === 'ready' && Boolean(liveKitToken && livekitUrl);
   const { decision: navigationDecision } = useNavigationDecisions({ room, enabled: shouldConnect });
+  const [hasVisionUpdates, setHasVisionUpdates] = useState(false);
   const lastDecisionSequence = useRef<number | null>(null);
   const { guidance: routeGuidance } = useRouteGuidance({
     room,
@@ -138,6 +139,23 @@ export default function App() {
     return 'neutral';
   }, [status]);
 
+  const visionWorkerStatus = useMemo(() => {
+    if (!shouldConnect) {
+      return { label: 'Vision worker idle', tone: 'neutral' as const };
+    }
+    if (!hasVisionUpdates) {
+      return { label: 'Waiting for vision worker…', tone: 'warning' as const };
+    }
+    return { label: 'Vision worker online', tone: 'success' as const };
+  }, [shouldConnect, hasVisionUpdates]);
+
+  const streamingStatus = useMemo(() => {
+    if (!shouldConnect) {
+      return { label: 'Remote guardian offline', tone: 'neutral' as const };
+    }
+    return { label: 'Remote guardian connected', tone: 'success' as const };
+  }, [shouldConnect]);
+
   useEffect(() => {
     AudioSession.startAudioSession();
     return () => {
@@ -155,6 +173,7 @@ export default function App() {
   useEffect(() => {
     if (!shouldConnect) {
       lastDecisionSequence.current = null;
+      setHasVisionUpdates(false);
     }
   }, [shouldConnect]);
 
@@ -162,6 +181,7 @@ export default function App() {
     if (!navigationDecision) return;
     if (lastDecisionSequence.current === navigationDecision.sequence) return;
     lastDecisionSequence.current = navigationDecision.sequence;
+    setHasVisionUpdates(true);
     const spoken = navigationDecision.message ?? describeNavigationCommand(navigationDecision.command);
     speak(spoken);
   }, [navigationDecision]);
@@ -281,7 +301,7 @@ export default function App() {
     }
   };
 
-  const streamingLabel = shouldConnect ? 'Remote guardian connected' : 'Remote guardian offline';
+  const streamingLabel = streamingStatus.label;
 
   const content = (
     <SafeAreaView style={styles.safeArea}>
@@ -311,7 +331,10 @@ export default function App() {
         </MapView>
 
         <View style={styles.topOverlay}>
-          <StatusChip label={statusMessage} tone={statusTone} />
+          <View style={styles.statusStack}>
+            <StatusChip label={statusMessage} tone={statusTone} />
+            <StatusChip label={visionWorkerStatus.label} tone={visionWorkerStatus.tone} />
+          </View>
           <Text style={styles.modeLabel}>{describeMode(mode)}</Text>
         </View>
 
@@ -330,6 +353,9 @@ export default function App() {
               Distance: <Text style={styles.infoEmphasis}>{destinationDistance.toFixed(0)} m</Text>
             </Text>
           ) : null}
+          <Text style={styles.infoText}>
+            Vision: <Text style={styles.infoEmphasis}>{visionWorkerStatus.label}</Text>
+          </Text>
           <Text style={styles.infoText}>
             Stream: <Text style={styles.infoEmphasis}>{streamingLabel}</Text>
           </Text>
@@ -490,6 +516,9 @@ const styles = StyleSheet.create({
     right: 20,
     zIndex: 10,
     gap: 12
+  },
+  statusStack: {
+    gap: 8
   },
   modeLabel: {
     color: palette.textPrimary,

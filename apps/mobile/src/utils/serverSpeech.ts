@@ -1,7 +1,12 @@
 import * as FileSystem from 'expo-file-system';
-import { useAudioPlayer, AudioSource } from 'expo-audio';
-import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
+
+export class SpeechPlaybackAbortedError extends Error {
+  constructor(message = 'Server speech playback aborted') {
+    super(message);
+    this.name = 'SpeechPlaybackAbortedError';
+  }
+}
 
 const extra = (Constants.expoConfig?.extra ?? Constants.manifestExtra ?? {}) as {
   apiBaseUrl?: string;
@@ -9,15 +14,23 @@ const extra = (Constants.expoConfig?.extra ?? Constants.manifestExtra ?? {}) as 
 
 const API_BASE_URL = trimTrailingSlash(extra?.apiBaseUrl || process.env.EXPO_PUBLIC_API_BASE_URL || '');
 
-let currentPlayer: ReturnType<typeof useAudioPlayer> | null = null;
+type AudioPlayer = {
+  play: () => void | Promise<void>;
+  pause: () => void;
+  playing: boolean;
+  currentTime: number;
+};
+
+let currentPlayer: AudioPlayer | null = null;
 let currentFileUri: string | null = null;
+let playbackWatcher: NodeJS.Timeout | null = null;
+let playbackDeferred: { resolve: () => void; reject: (error: Error) => void } | null = null;
 
 export async function speakViaServer(text: string) {
   if (!API_BASE_URL) {
     throw new Error('API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL.');
   }
 
-  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   await stopServerSpeech();
 
   const response = await fetch(`${API_BASE_URL}/api/tts/speak`, {
@@ -41,28 +54,65 @@ export async function speakViaServer(text: string) {
 
   currentFileUri = fileUri;
 
-  // Use expo-audio instead of expo-av
   const { createAudioPlayer } = await import('expo-audio');
-  const player = createAudioPlayer(fileUri);
-  
+  const player = createAudioPlayer(fileUri) as AudioPlayer;
   currentPlayer = player;
-  
-  player.play();
 
-  // Clean up after playback finishes
-  const checkPlayback = setInterval(() => {
-    if (player.playing === false && player.currentTime > 0) {
-      clearInterval(checkPlayback);
-      cleanup();
+  return new Promise<void>((resolve, reject) => {
+    playbackDeferred = { resolve, reject };
+    startWatcher(player);
+
+    try {
+      const maybePromise = player.play();
+      if (maybePromise instanceof Promise) {
+        maybePromise.catch((error) => settlePlayback(toError(error)));
+      }
+    } catch (error) {
+      settlePlayback(toError(error));
     }
-  }, 100);
+  });
 }
 
-export async function stopServerSpeech() {
+export async function stopServerSpeech(reason = 'Server speech stopped') {
   if (currentPlayer) {
-    currentPlayer.pause();
-    cleanup();
+    try {
+      currentPlayer.pause();
+    } catch {
+      // ignore pause errors
+    }
   }
+
+  await settlePlayback(new SpeechPlaybackAbortedError(reason));
+}
+
+function startWatcher(player: AudioPlayer) {
+  clearWatcher();
+  playbackWatcher = setInterval(() => {
+    if (player.playing === false && player.currentTime > 0) {
+      settlePlayback();
+    }
+  }, 120);
+}
+
+function clearWatcher() {
+  if (playbackWatcher) {
+    clearInterval(playbackWatcher);
+    playbackWatcher = null;
+  }
+}
+
+async function settlePlayback(error?: Error) {
+  const deferred = playbackDeferred;
+  playbackDeferred = null;
+  clearWatcher();
+
+  if (error && deferred) {
+    deferred.reject(error);
+  } else if (deferred) {
+    deferred.resolve();
+  }
+
+  await cleanup();
 }
 
 async function cleanup() {
@@ -71,6 +121,12 @@ async function cleanup() {
     await FileSystem.deleteAsync(currentFileUri, { idempotent: true }).catch(() => undefined);
     currentFileUri = null;
   }
+}
+
+function toError(value: unknown) {
+  if (value instanceof Error) return value;
+  if (typeof value === 'string') return new Error(value);
+  return new Error('Unknown playback error');
 }
 
 function trimTrailingSlash(value: string): string {
