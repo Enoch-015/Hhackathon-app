@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -31,6 +31,7 @@ import { InfoCard } from './src/components/InfoCard';
 import { StatusChip } from './src/components/StatusChip';
 import { useAccessibleLocation } from './src/hooks/useAccessibleLocation';
 import { useNavigationDecisions, describeNavigationCommand, type NavigationDecision } from './src/hooks/useNavigationDecisions';
+import { useRouteGuidance } from './src/hooks/useRouteGuidance';
 import { useLiveKitSession } from './src/hooks/useLiveKitSession';
 import { palette } from './src/theme/colors';
 import { speak, stopSpeech } from './src/utils/voiceAssistant';
@@ -39,6 +40,7 @@ type GuidanceMode = 'idle' | 'listening' | 'navigating';
 
 type ExtraConfig = {
   livekitUrl?: string;
+  apiBaseUrl?: string;
 };
 
 try {
@@ -68,6 +70,7 @@ export default function App() {
   const identityRef = useRef(`walker-${Math.random().toString(36).slice(2, 10)}`);
   const extra = (Constants.expoConfig?.extra ?? Constants.manifestExtra ?? {}) as ExtraConfig;
   const livekitUrl = extra?.livekitUrl || process.env.EXPO_PUBLIC_LIVEKIT_URL || '';
+  const API_BASE_URL = trimTrailingSlash(extra?.apiBaseUrl || process.env.EXPO_PUBLIC_API_BASE_URL || '');
   const {
     token: liveKitToken,
     status: liveKitStatus,
@@ -79,6 +82,38 @@ export default function App() {
   const shouldConnect = isStreamingRequested && liveKitStatus === 'ready' && Boolean(liveKitToken && livekitUrl);
   const { decision: navigationDecision } = useNavigationDecisions({ room, enabled: shouldConnect });
   const lastDecisionSequence = useRef<number | null>(null);
+  const { guidance: routeGuidance } = useRouteGuidance({
+    room,
+    latitude: coords?.latitude ?? null,
+    longitude: coords?.longitude ?? null,
+    enabled: Boolean(destination && coords),
+    mode: 'walking'
+  });
+  const lastRouteInstruction = useRef<string | null>(null);
+
+  const persistDestination = useCallback(
+    async (region: Region) => {
+      if (!API_BASE_URL || !room) return;
+      try {
+        await fetch(`${API_BASE_URL}/api/navigation/destination`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            room,
+            latitude: region.latitude,
+            longitude: region.longitude,
+            label: 'Pinned destination',
+            requested_by: identityRef.current
+          })
+        });
+      } catch (err) {
+        console.warn('[navigation] Failed to sync destination', err);
+      }
+    },
+    [room]
+  );
 
   const destinationDistance = useMemo(() => {
     if (!coords || !destination) return null;
@@ -132,6 +167,14 @@ export default function App() {
   }, [navigationDecision]);
 
   useEffect(() => {
+    if (!routeGuidance || mode !== 'navigating') return;
+    if (lastRouteInstruction.current === routeGuidance.instruction) return;
+    lastRouteInstruction.current = routeGuidance.instruction;
+    const spoken = `${routeGuidance.instruction}. Continue for ${routeGuidance.distanceText}.`;
+    speak(spoken);
+  }, [routeGuidance, mode]);
+
+  useEffect(() => {
     if (!coords) return;
 
     const nextRegion: Region = {
@@ -166,6 +209,7 @@ export default function App() {
     setDestination(pinnedRegion);
     setMode('navigating');
     speak('Destination pinned. Guidance locked in. Use announce to hear distance updates.');
+    void persistDestination(pinnedRegion);
   };
 
   const handleAnnounceSurroundings = () => {
@@ -294,6 +338,11 @@ export default function App() {
               Instruction: <Text style={styles.infoEmphasis}>{formatNavigationDecision(navigationDecision)}</Text>
             </Text>
           ) : null}
+          {routeGuidance ? (
+            <Text style={styles.infoText}>
+              Route: <Text style={styles.infoEmphasis}>{routeGuidance.instruction}</Text>
+            </Text>
+          ) : null}
         </InfoCard>
 
         <AssistiveButton
@@ -419,6 +468,11 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+function trimTrailingSlash(value: string): string {
+  if (!value) return value;
+  return value.endsWith('/') ? value.slice(0, -1) : value;
 }
 
 const styles = StyleSheet.create({

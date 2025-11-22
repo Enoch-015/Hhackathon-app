@@ -70,3 +70,29 @@ class NavigationDestinationRequest(BaseModel):
 
 class NavigationDestinationResponse(NavigationDestinationRequest):
     updated_at: datetime
+
+
+class NavigationDirectionsRequest(BaseModel):
+    room: str = Field(..., description="LiveKit room identifier")
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+    mode: str | None = Field(default=None, description="Google Directions travel mode, e.g., walking")
+
+
+class NavigationDirectionStep(BaseModel):
+    instruction: str
+    distance_meters: int
+    distance_text: str
+    duration_seconds: int
+    duration_text: str
+    travel_mode: str
+
+
+class NavigationDirectionsResponse(BaseModel):
+    summary: str | None = None
+    total_distance_meters: int
+    total_duration_seconds: int
+    next_step: NavigationDirectionStep
+    destination_latitude: float
+    destination_longitude: float
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

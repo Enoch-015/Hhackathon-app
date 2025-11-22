@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = ["*"]
     google_credentials_file: str | None = None
     google_credentials_json: str | None = None
+    google_maps_api_key: str | None = None
     tts_voice: str = "en-US-Wavenet-F"
     tts_language_code: str = "en-US"
     tts_audio_encoding: str = "MP3"
