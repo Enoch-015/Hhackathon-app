@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from typing import Any, Optional
 
 from google.cloud import texttospeech_v1 as texttospeech
@@ -16,10 +17,17 @@ class TextToSpeechService:
 
     def _build_client(self) -> texttospeech.TextToSpeechClient:
         credentials: Optional[service_account.Credentials] = None
-        if self.settings.google_credentials_json:
-            credentials = service_account.Credentials.from_service_account_info(
-                self.settings.google_credentials_json  # type: ignore[arg-type]
-            )
+        json_blob = self.settings.google_credentials_json
+        if json_blob:
+            credentials_dict: Any
+            if isinstance(json_blob, str):
+                try:
+                    credentials_dict = json.loads(json_blob)
+                except json.JSONDecodeError:
+                    credentials_dict = json.loads(base64.b64decode(json_blob).decode("utf-8"))
+            else:
+                credentials_dict = json_blob  # pragma: no cover - typed configs
+            credentials = service_account.Credentials.from_service_account_info(credentials_dict)
         elif self.settings.google_credentials_file:
             credentials = service_account.Credentials.from_service_account_file(self.settings.google_credentials_file)
         if credentials:

@@ -8,7 +8,7 @@ from typing import Iterable
 
 from ..config import Settings, get_settings
 from ..models.schemas import NavigationCommand
-
+    
 
 @dataclass(slots=True)
 class DecisionEntry:

@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 class VisionConfig:
     model_path: str = "yolov8n-seg.pt"
     video_source: str = "0"
-    api_base_url: str = "http://127.0.0.1:8000"
+    api_base_url: str = "http://127.0.0.1:8080"
     api_token: str | None = None
     livekit_room: str = "vision-nav-room"
     livekit_url: str | None = None
@@ -64,7 +64,7 @@ class VisionConfig:
         return cls(
             model_path=os.getenv("YOLO_MODEL_PATH", cls.model_path),
             video_source=os.getenv("VIDEO_SOURCE", cls.video_source),
-            api_base_url=(os.getenv("FASTAPI_BASE_URL") or "http://127.0.0.1:8000").rstrip("/"),
+            api_base_url=(os.getenv("FASTAPI_BASE_URL") or "http://127.0.0.1:8080").rstrip("/"),
             api_token=os.getenv("VISION_API_TOKEN") or settings.vision_api_token,
             livekit_room=os.getenv("LIVEKIT_ROOM", settings.obs_room),
             livekit_url=livekit_url,
@@ -317,8 +317,12 @@ class NavigationSupervisor:
             detection = sv.Detections.from_ultralytics(results[0])
 
         names = self.model.names or {}
-        confidences = getattr(detection, "confidence", None) or []
-        class_ids = getattr(detection, "class_id", None) or []
+        confidences = getattr(detection, "confidence", None)
+        class_ids = getattr(detection, "class_id", None)
+        if confidences is None or (hasattr(confidences, "size") and confidences.size == 0):
+            confidences = []
+        if class_ids is None or (hasattr(class_ids, "size") and class_ids.size == 0):
+            class_ids = []
         labels: list[str] = []
         for conf, class_id in zip(confidences, class_ids):
             label = names.get(int(class_id), "obj") if isinstance(class_id, (int, np.integer)) else names.get(class_id, "obj")
